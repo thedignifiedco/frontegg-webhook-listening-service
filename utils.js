@@ -37,6 +37,7 @@ export async function getAssignedApps(tenantId) {
   const response = await fetch('https://api.frontegg.com/applications/resources/applications/tenant-assignments/v1', {
     method: 'GET',
     headers: {
+      Authorization: `Bearer ${token}`,
       'frontegg-tenant-id': tenantId,
     },
   });
