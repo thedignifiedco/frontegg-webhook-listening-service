@@ -1,47 +1,47 @@
 // api/webhook.js
-import {
-  getVendorToken,
-  getAssignedApps,
-  assignUserToApp,
-  verifyWebhookSignature,
-} from '../utils.js';
+import { getVendorToken, getAssignedApps, assignUserToApps } from '../utils.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).send('Method Not Allowed');
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   const signature = req.headers['x-webhook-secret'];
-  const secret = process.env.WEBHOOK_SECRET;
+  const expectedSecret = process.env.FRONTEGG_WEBHOOK_SECRET;
 
-  if (!signature || !verifyWebhookSignature(signature, secret)) {
-    return res.status(401).send('Invalid signature');
+  if (!signature || signature !== expectedSecret) {
+    console.error('❌ Invalid webhook signature');
+    return res.status(401).json({ error: 'Invalid webhook signature' });
   }
 
   const { eventContext, user } = req.body;
+
   const tenantId = eventContext?.tenantId;
   const userId = user?.id;
 
   if (!tenantId || !userId) {
-    console.error('❌ Missing tenantId or userId');
-    return res.status(400).send('Missing tenantId or userId');
+    console.error('❌ Missing tenantId or userId in request');
+    return res.status(400).json({ error: 'Missing tenantId or userId' });
   }
 
   try {
-    const appIds = await getAssignedApps(tenantId);
     const token = await getVendorToken();
+    const assignedAppIds = await getAssignedApps(tenantId, token);
 
-    let successCount = 0;
-    for (const appId of appIds) {
-      const success = await assignUserToApp(appId, tenantId, userId, token);
-      if (success) successCount++;
+    if (assignedAppIds.length === 0) {
+      console.log(`ℹ️ No apps assigned to tenant ${tenantId}. Skipping.`);
+      return res.status(200).json({ message: 'No apps to assign' });
     }
 
-    res.status(200).json({
-      message: `Assigned user to ${successCount}/${appIds.length} apps`,
-    });
-  } catch (error) {
-    console.error('🔥 Internal server error:', error);
-    res.status(500).send('Internal Server Error');
+    const success = await assignUserToApps({ tenantId, userId, appIds: assignedAppIds, vendorToken: token });
+
+    if (!success) {
+      return res.status(500).json({ error: 'Failed to assign apps' });
+    }
+
+    return res.status(200).json({ message: 'User assigned to apps', appsAssigned: assignedAppIds.length });
+  } catch (err) {
+    console.error('🔥 Internal server error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }

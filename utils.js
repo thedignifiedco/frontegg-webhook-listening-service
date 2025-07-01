@@ -1,87 +1,101 @@
-// utils.js
-import jwt from 'jsonwebtoken';
+// utils.js (ESModules)
 import fetch from 'node-fetch';
+
+const FRONTEGG_CLIENT_ID = process.env.FRONTEGG_CLIENT_ID;
+const FRONTEGG_CLIENT_SECRET = process.env.FRONTEGG_CLIENT_SECRET;
 
 let cachedToken = null;
 let tokenExpiry = 0;
 
+/**
+ * Fetch and cache Frontegg Vendor Token using Client Credentials Grant
+ */
 export async function getVendorToken() {
-  const now = Date.now();
+  const now = Date.now() / 1000;
+
   if (cachedToken && now < tokenExpiry) {
     return cachedToken;
   }
 
-  console.log('🔑 Fetching new Frontegg vendor token...');
-  const response = await fetch('https://api.frontegg.com/auth/vendor/', {
+  console.log('🔐 Fetching new Frontegg vendor token...');
+  const res = await fetch('https://api.frontegg.com/auth/vendor/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      clientId: process.env.FRONTEGG_CLIENT_ID,
-      secret: process.env.FRONTEGG_SECRET,
+      clientId: FRONTEGG_CLIENT_ID,
+      secret: FRONTEGG_CLIENT_SECRET,
     }),
   });
 
-  const data = await response.json();
-
-  if (!response.ok || !data.token) {
-    console.error('🔥 Error fetching vendor token:', data);
-    throw new Error('Unable to fetch vendor token');
+  if (!res.ok) {
+    const error = await res.text();
+    console.error('❌ Failed to fetch token:', error);
+    throw new Error('Failed to authenticate with Frontegg');
   }
 
-  cachedToken = data.token;
-  tokenExpiry = now + 23 * 60 * 60 * 1000; // cache for 23 hours
-  return cachedToken;
+  const { token, expiresIn } = await res.json();
+  cachedToken = token;
+  tokenExpiry = now + expiresIn - 60; // Buffer 60s
+  return token;
 }
 
-export async function getAssignedApps(tenantId) {
-  const response = await fetch('https://api.frontegg.com/applications/resources/applications/tenant-assignments/v1', {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'frontegg-tenant-id': tenantId,
-    },
-  });
+/**
+ * Get currently assigned app IDs for a given tenant
+ */
+export async function getAssignedApps(tenantId, vendorToken) {
+  try {
+    const res = await fetch('https://api.frontegg.com/applications/resources/applications/tenant-assignments/v1', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'frontegg-tenant-id': tenantId,
+        'Authorization': `Bearer ${vendorToken}`,
+      }
+    });
 
-  const data = await response.json();
+    const data = await res.json();
 
-  if (!response.ok || !Array.isArray(data) || !data[0]?.appIds) {
-    console.error('🔥 Error fetching assigned apps:', data);
+    if (!res.ok) {
+      console.error('🔥 Error fetching assigned apps:', data);
+      return [];
+    }
+
+    const assigned = data.find(entry => entry.tenantId === tenantId);
+    return assigned?.appIds || [];
+  } catch (err) {
+    console.error('🔥 Unexpected error in getAssignedApps:', err);
     return [];
   }
-
-  return data[0].appIds;
 }
 
-export async function assignUserToApp(appId, tenantId, userId, token) {
-  const response = await fetch('https://api.frontegg.com/identity/resources/applications/v1', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      appId,
-      tenantId,
-      userIds: [userId],
-    }),
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    console.error(`🔥 Failed to assign user to app ${appId}:`, data);
-    return false;
-  }
-
-  return true;
-}
-
-export function verifyWebhookSignature(headerToken, secret) {
+/**
+ * Assign user to one or more apps under a tenant
+ */
+export async function assignUserToApps({ tenantId, userId, appIds, vendorToken }) {
   try {
-    jwt.verify(headerToken, secret);
+    const res = await fetch('https://api.frontegg.com/applications/resources/applications/assign-user-to-apps', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${vendorToken}`,
+      },
+      body: JSON.stringify({
+        tenantId,
+        userId,
+        appIds,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      console.error('🔥 Error assigning user to apps:', data);
+      return false;
+    }
+
     return true;
   } catch (err) {
-    console.error('❌ Invalid webhook signature:', err.message);
+    console.error('🔥 Unexpected error in assignUserToApps:', err);
     return false;
   }
 }
