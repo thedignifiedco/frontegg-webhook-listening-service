@@ -2,7 +2,7 @@
 import express from 'express';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
-import { getVendorToken, getAssignedApps, assignUserToApps } from '../utils.js';
+import { assignUserToAllApps, validateWebhookSignature } from '../utils.js';
 
 dotenv.config();
 
@@ -13,44 +13,29 @@ app.use(bodyParser.json());
 
 app.post('/webhooks/user-invited', async (req, res) => {
   const signature = req.headers['x-webhook-secret'];
-  const expectedSecret = process.env.FRONTEGG_WEBHOOK_SECRET;
+  const secret = process.env.FRONTEGG_WEBHOOK_SECRET;
 
-  if (!signature || signature !== expectedSecret) {
-    console.error('❌ Invalid webhook signature');
+  if (!signature || !validateWebhookSignature(signature, secret)) {
     return res.status(401).json({ error: 'Invalid webhook signature' });
   }
 
-  const { eventContext, user } = req.body;
+  const { user, eventContext } = req.body;
   const tenantId = eventContext?.tenantId;
   const userId = user?.id;
 
   if (!tenantId || !userId) {
-    console.error('❌ Missing tenantId or userId in request');
     return res.status(400).json({ error: 'Missing tenantId or userId' });
   }
 
   try {
-    const token = await getVendorToken();
-    const assignedAppIds = await getAssignedApps(tenantId, token);
-
-    if (assignedAppIds.length === 0) {
-      console.log(`ℹ️ No apps assigned to tenant ${tenantId}. Skipping.`);
-      return res.status(200).json({ message: 'No apps to assign' });
-    }
-
-    const success = await assignUserToApps({ tenantId, userId, appIds: assignedAppIds, vendorToken: token });
-
-    if (!success) {
-      return res.status(500).json({ error: 'Failed to assign apps' });
-    }
-
-    return res.status(200).json({ message: 'User assigned to apps', appsAssigned: assignedAppIds.length });
+    const assigned = await assignUserToAllApps({ tenantId, userId });
+    return res.status(200).json({ success: true, appsAssigned: assigned.length });
   } catch (err) {
-    console.error('🔥 Internal server error:', err);
+    console.error('❌ Error assigning apps:', err.message);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Webhook server listening on http://localhost:${PORT}`);
+  console.log(`🚀 Webhook listener running on http://localhost:${PORT}`);
 });
