@@ -4,9 +4,14 @@ let tokenExpiry = 0;
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
+  console.log('📦 Incoming headers:', req.headers);
+
   const receivedSig = req.headers['x-webhook-secret'];
-  if (receivedSig !== process.env.WEBHOOK_SECRET) {
-    return res.status(401).send('Invalid signature');
+  const expectedSig = process.env.WEBHOOK_SECRET;
+
+  if (receivedSig !== expectedSig) {
+    console.error('❌ Invalid webhook signature');
+    return res.status(401).send('Unauthorized');
   }
 
   const { eventKey, eventContext } = req.body;
