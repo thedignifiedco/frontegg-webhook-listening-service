@@ -1,113 +1,56 @@
+// server/index.js
 import express from 'express';
 import dotenv from 'dotenv';
-import fs from 'fs';
-import path from 'path';
-import https from 'https';
-import fetch from 'node-fetch';
-import jwt from 'jsonwebtoken';
+import bodyParser from 'body-parser';
+import {
+  getVendorToken,
+  getAssignedApps,
+  assignUserToApp,
+  verifyWebhookSignature,
+} from '../utils.js';
 
 dotenv.config();
-
 const app = express();
-app.use(express.json());
+const PORT = process.env.PORT || 9000;
 
-let vendorToken = null;
-let tokenExpiry = 0;
-
-async function getVendorToken() {
-  const now = Math.floor(Date.now() / 1000);
-  if (vendorToken && now < tokenExpiry - 60) return vendorToken;
-
-  const res = await fetch('https://api.frontegg.com/auth/vendor/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      clientId: process.env.FRONTEGG_CLIENT_ID,
-      secret: process.env.FRONTEGG_CLIENT_SECRET
-    })
-  });
-
-  const data = await res.json();
-  if (!res.ok || !data.token) {
-    console.error('❌ Failed to fetch vendor token:', data);
-    return null;
-  }
-
-  vendorToken = data.token;
-  tokenExpiry = now + data.expiresIn;
-  return vendorToken;
-}
+app.use(bodyParser.json());
 
 app.post('/webhooks/user-invited', async (req, res) => {
-  const receivedSig = req.headers['x-webhook-secret'];
-  if (!receivedSig) {
-    console.error('❌ Missing x-webhook-secret header');
-    return res.status(401).send('Unauthorized');
+  const signature = req.headers['x-webhook-secret'];
+  const secret = process.env.WEBHOOK_SECRET;
+
+  if (!signature || !verifyWebhookSignature(signature, secret)) {
+    return res.status(401).send('Invalid signature');
   }
 
-  try {
-    jwt.verify(receivedSig, process.env.WEBHOOK_SECRET);
-  } catch (err) {
-    console.error('❌ Invalid webhook signature:', err.message);
-    return res.status(401).send('Unauthorized');
-  }
-
-  const { eventKey, eventContext } = req.body;
-  if (eventKey !== 'frontegg.user.invitedToTenant') {
-    return res.status(400).send('Unsupported event');
-  }
-
+  const { eventContext, user } = req.body;
   const tenantId = eventContext?.tenantId;
-  const userId = eventContext?.userId;
-  if (!tenantId || !userId) return res.status(400).send('Missing tenantId or userId');
+  const userId = user?.id;
 
-  const jwtToken = await getVendorToken();
-  if (!jwtToken) return res.status(500).send('Failed to authenticate');
+  if (!tenantId || !userId) {
+    console.error('❌ Missing tenantId or userId');
+    return res.status(400).send('Missing tenantId or userId');
+  }
 
-  let appIds = [];
   try {
-    const appsRes = await fetch('https://api.frontegg.com/applications/resources/applications/tenant-assignments/v1', {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${jwtToken}`,
-        'frontegg-tenant-id': tenantId
-      }
-    });
-    const appsData = await appsRes.json();
-    appIds = appsData?.[0]?.appIds || [];
-  } catch (err) {
-    console.error('App fetch error:', err);
-    return res.status(500).send('App fetch failed');
-  }
+    const appIds = await getAssignedApps(tenantId);
+    const token = await getVendorToken();
 
-  let successCount = 0;
-  for (const appId of appIds) {
-    try {
-      const assignRes = await fetch('https://api.frontegg.com/identity/resources/applications/v1', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${jwtToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ appId, tenantId, userIds: [userId] })
-      });
-
-      if (assignRes.ok) successCount++;
-    } catch (err) {
-      console.error(`Assign error for app ${appId}:`, err);
+    let successCount = 0;
+    for (const appId of appIds) {
+      const success = await assignUserToApp(appId, tenantId, userId, token);
+      if (success) successCount++;
     }
-  }
 
-  res.status(200).send(`Apps assigned: ${successCount}`);
+    res.status(200).json({
+      message: `Assigned user to ${successCount}/${appIds.length} apps`,
+    });
+  } catch (error) {
+    console.error('🔥 Internal server error:', error);
+    res.status(500).send('Internal Server Error');
+  }
 });
 
-const certPath = path.resolve('certs');
-const credentials = {
-  key: fs.readFileSync(path.join(certPath, 'key.pem')),
-  cert: fs.readFileSync(path.join(certPath, 'cert.pem'))
-};
-
-const PORT = process.env.PORT || 9000;
-https.createServer(credentials, app).listen(PORT, () => {
-  console.log(`🔐 Local HTTPS server running at https://localhost:${PORT}`);
+app.listen(PORT, () => {
+  console.log(`🚀 Server listening on http://localhost:${PORT}`);
 });
