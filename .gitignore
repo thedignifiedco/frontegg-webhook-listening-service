@@ -1,0 +1,30 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local env files
+.env
+.env.*.local
+
+# Logs
+logs/
+*.log
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# HTTPS certs (local development only)
+certs/
+*.pem
+*.crt
+*.key
+
+# Runtime
+dist/
+coverage/
