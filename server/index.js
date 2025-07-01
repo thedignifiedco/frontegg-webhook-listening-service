@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import https from 'https';
 import fetch from 'node-fetch';
+import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
@@ -39,8 +40,16 @@ async function getVendorToken() {
 
 app.post('/webhooks/user-invited', async (req, res) => {
   const receivedSig = req.headers['x-webhook-secret'];
-  if (receivedSig !== process.env.WEBHOOK_SECRET) {
-    return res.status(401).send('Invalid signature');
+  if (!receivedSig) {
+    console.error('❌ Missing x-webhook-secret header');
+    return res.status(401).send('Unauthorized');
+  }
+
+  try {
+    jwt.verify(receivedSig, process.env.WEBHOOK_SECRET);
+  } catch (err) {
+    console.error('❌ Invalid webhook signature:', err.message);
+    return res.status(401).send('Unauthorized');
   }
 
   const { eventKey, eventContext } = req.body;
@@ -52,15 +61,15 @@ app.post('/webhooks/user-invited', async (req, res) => {
   const userId = eventContext?.userId;
   if (!tenantId || !userId) return res.status(400).send('Missing tenantId or userId');
 
-  const jwt = await getVendorToken();
-  if (!jwt) return res.status(500).send('Failed to authenticate');
+  const jwtToken = await getVendorToken();
+  if (!jwtToken) return res.status(500).send('Failed to authenticate');
 
   let appIds = [];
   try {
     const appsRes = await fetch('https://api.frontegg.com/applications/resources/applications/tenant-assignments/v1', {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${jwt}`,
+        Authorization: `Bearer ${jwtToken}`,
         'frontegg-tenant-id': tenantId
       }
     });
@@ -77,7 +86,7 @@ app.post('/webhooks/user-invited', async (req, res) => {
       const assignRes = await fetch('https://api.frontegg.com/identity/resources/applications/v1', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${jwt}`,
+          Authorization: `Bearer ${jwtToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ appId, tenantId, userIds: [userId] })
