@@ -1,41 +1,48 @@
 // server/index.js
 import express from 'express';
-import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
-import { assignUserToAllApps, validateWebhookSignature } from '../utils.js';
+import bodyParser from 'body-parser';
+import {
+  getVendorToken,
+  getAssignedApps,
+  assignUserToApps,
+  verifyWebhookSignature,
+} from '../utils.js';
 
 dotenv.config();
-
 const app = express();
-const PORT = process.env.PORT || 9000;
-
 app.use(bodyParser.json());
 
 app.post('/webhooks/user-invited', async (req, res) => {
   const signature = req.headers['x-webhook-secret'];
-  const secret = process.env.FRONTEGG_WEBHOOK_SECRET;
-
-  if (!signature || !validateWebhookSignature(signature, secret)) {
+  if (!verifyWebhookSignature(signature, process.env.WEBHOOK_SECRET)) {
     return res.status(401).json({ error: 'Invalid webhook signature' });
   }
 
   const { user, eventContext } = req.body;
-  const tenantId = eventContext?.tenantId;
-  const userId = user?.id;
+  const { userId } = user;
+  const { tenantId } = eventContext;
 
   if (!tenantId || !userId) {
     return res.status(400).json({ error: 'Missing tenantId or userId' });
   }
 
   try {
-    const assigned = await assignUserToAllApps({ tenantId, userId });
-    return res.status(200).json({ success: true, appsAssigned: assigned.length });
+    const vendorToken = await getVendorToken();
+    const appIds = await getAssignedApps(tenantId, vendorToken);
+
+    if (appIds.length === 0) {
+      console.warn('No apps assigned to tenant');
+      return res.status(200).json({ message: 'No apps to assign' });
+    }
+
+    const results = await assignUserToApps(userId, tenantId, appIds, vendorToken);
+    return res.status(200).json({ assigned: results });
   } catch (err) {
-    console.error('❌ Error assigning apps:', err.message);
+    console.error('Error during webhook handling:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Webhook listener running on http://localhost:${PORT}`);
-});
+const PORT = process.env.PORT || 9000;
+app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));

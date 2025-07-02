@@ -1,27 +1,18 @@
 // utils.js
-import jwt from 'jsonwebtoken';
 import fetch from 'node-fetch';
+import jwt from 'jsonwebtoken';
 
-let cachedToken = null;
-let tokenExpiry = 0;
-
-export function validateWebhookSignature(signedToken, secret) {
-  try {
-    jwt.verify(signedToken, secret); // HS256 signed JWT from Frontegg
-    return true;
-  } catch (err) {
-    console.error('❌ Invalid webhook signature:', err.message);
-    return false;
-  }
-}
+const VENDOR_TOKEN_CACHE = {
+  token: null,
+  expiry: null,
+};
 
 export async function getVendorToken() {
-  const now = Math.floor(Date.now() / 1000);
-  if (cachedToken && now < tokenExpiry) {
-    return cachedToken;
-  }
+  const now = Date.now();
 
-  console.log('🔐 Fetching new Frontegg vendor token...');
+  if (VENDOR_TOKEN_CACHE.token && VENDOR_TOKEN_CACHE.expiry > now) {
+    return VENDOR_TOKEN_CACHE.token;
+  }
 
   const res = await fetch('https://api.frontegg.com/auth/vendor/', {
     method: 'POST',
@@ -33,48 +24,68 @@ export async function getVendorToken() {
   });
 
   if (!res.ok) {
-    throw new Error(`Error fetching token: ${res.statusText}`);
+    throw new Error(`Failed to fetch vendor token: ${res.status}`);
   }
 
   const { token, expiresIn } = await res.json();
-  cachedToken = token;
-  tokenExpiry = now + expiresIn - 60; // renew 1 min before expiry
+  VENDOR_TOKEN_CACHE.token = token;
+  VENDOR_TOKEN_CACHE.expiry = now + expiresIn * 1000;
 
   return token;
 }
 
-export async function assignUserToAllApps({ tenantId, userId }) {
-  const vendorToken = await getVendorToken();
+export async function getAssignedApps(tenantId, vendorToken) {
+  const res = await fetch(
+    'https://api.frontegg.com/applications/resources/applications/tenant-assignments/v1',
+    {
+      headers: {
+        'frontegg-tenant-id': tenantId,
+        Authorization: `Bearer ${vendorToken}`,
+      },
+    }
+  );
 
-  const appsRes = await fetch('https://api.frontegg.com/vendor/resources/applications', {
-    headers: {
-      Authorization: `Bearer ${vendorToken}`,
-    },
-  });
+  if (!res.ok) {
+    throw new Error('Failed to fetch tenant applications');
+  }
 
-  const apps = await appsRes.json();
-  if (!Array.isArray(apps)) throw new Error('Invalid apps response');
+  const data = await res.json();
+  const apps = data.find((item) => item.tenantId === tenantId);
+  return apps?.appIds || [];
+}
 
-  const assignedApps = [];
+export async function assignUserToApps(userId, tenantId, appIds, vendorToken) {
+  const results = [];
 
-  for (const app of apps) {
-    const assignRes = await fetch(
-      `https://api.frontegg.com/vendor/resources/tenants/${tenantId}/users/${userId}/applications/${app.id}`,
+  for (const appId of appIds) {
+    const res = await fetch(
+      'https://api.frontegg.com/identity/resources/applications/v1',
       {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${vendorToken}`,
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          appId,
+          tenantId,
+          userIds: [userId],
+        }),
       }
     );
 
-    if (assignRes.ok) {
-      assignedApps.push(app.id);
-    } else {
-      console.error(`❌ Failed to assign app ${app.id}:`, await assignRes.text());
-    }
+    const result = await res.json();
+    results.push({ appId, status: res.status, result });
   }
 
-  return assignedApps;
+  return results;
+}
+
+export function verifyWebhookSignature(headerValue, webhookSecret) {
+  try {
+    const decoded = jwt.verify(headerValue, webhookSecret);
+    return !!decoded;
+  } catch {
+    return false;
+  }
 }
