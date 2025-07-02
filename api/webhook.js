@@ -12,7 +12,7 @@ export default async function handler(req, res) {
   }
 
   const signature = req.headers['x-webhook-secret'];
-  if (!verifyWebhookSignature(signature, process.env.WEBHOOK_SECRET)) {
+  if (!verifyWebhookSignature(signature, process.env.FRONTEGG_WEBHOOK_SECRET)) {
     return res.status(401).json({ error: 'Invalid webhook signature' });
   }
 
