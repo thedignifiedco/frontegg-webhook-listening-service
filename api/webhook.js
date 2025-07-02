@@ -4,24 +4,24 @@ import {
   getAssignedApps,
   assignUserToApps,
   verifyWebhookSignature,
-} from '../utils.js';
+} from "../utils.js";
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const signature = req.headers['x-webhook-secret'];
+  const signature = req.headers["x-webhook-secret"];
   if (!verifyWebhookSignature(signature, process.env.FRONTEGG_WEBHOOK_SECRET)) {
-    return res.status(401).json({ error: 'Invalid webhook signature' });
+    return res.status(401).json({ error: "Invalid webhook signature" });
   }
 
   const { user, eventContext } = req.body;
-  const { userId } = user;
-  const { tenantId } = eventContext;
+  const userId = user?.id;
+  const tenantId = eventContext?.tenantId;
 
   if (!tenantId || !userId) {
-    return res.status(400).json({ error: 'Missing tenantId or userId' });
+    return res.status(400).json({ error: "Missing tenantId or userId" });
   }
 
   try {
@@ -29,14 +29,19 @@ export default async function handler(req, res) {
     const appIds = await getAssignedApps(tenantId, vendorToken);
 
     if (appIds.length === 0) {
-      console.warn('No apps assigned to tenant');
-      return res.status(200).json({ message: 'No apps to assign' });
+      console.warn("No apps assigned to tenant");
+      return res.status(200).json({ message: "No apps to assign" });
     }
 
-    const results = await assignUserToApps(userId, tenantId, appIds, vendorToken);
+    const results = await assignUserToApps(
+      userId,
+      tenantId,
+      appIds,
+      vendorToken
+    );
     return res.status(200).json({ assigned: results });
   } catch (err) {
-    console.error('Error during webhook handling:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error("Error during webhook handling:", err);
+    return res.status(500).json({ error: "Internal server error" });
   }
 }
