@@ -43,7 +43,7 @@ The service supports two deployment models:
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/thedignifiedco/frontegg-webhook-listening-service
    cd frontegg-webhook-service
    ```
 
@@ -61,8 +61,8 @@ The service supports two deployment models:
    ```env
    FRONTEGG_CLIENT_ID=your_frontegg_client_id
    FRONTEGG_CLIENT_SECRET=your_frontegg_client_secret
-   WEBHOOK_SECRET=your_webhook_secret_from_dashboard
-   PORT=3000
+   FRONTEGG_WEBHOOK_SECRET=your_webhook_secret_from_dashboard
+   PORT=9000
    ```
 
 ## 🚀 Deployment
@@ -101,32 +101,17 @@ The service supports two deployment models:
 |----------|-------------|----------|
 | `FRONTEGG_CLIENT_ID` | Your Frontegg client ID | ✅ |
 | `FRONTEGG_CLIENT_SECRET` | Your Frontegg client secret | ✅ |
-| `WEBHOOK_SECRET` | Webhook secret from Frontegg dashboard | ✅ |
-| `PORT` | Server port (default: 3000) | ❌ |
+| `FRONTEGG_WEBHOOK_SECRET` | Webhook secret from Frontegg dashboard | ✅ |
+| `PORT` | Server port (default: 9000) | ❌ |
 
 ### Frontegg Dashboard Setup
 
 1. Navigate to your Frontegg dashboard
-2. Go to **Settings** → **Webhooks**
+2. Go to **Hooks** → **Webhook (Connect)** → **Create connection**
 3. Add a new webhook with:
-   - **Event**: `frontegg.user.invitedToTenant`
+   - **Event**: `User invited to tenant`
    - **URL**: Your deployed service endpoint
-   - **Secret**: Same value as `WEBHOOK_SECRET` in your `.env`
-
-## 📁 Project Structure
-
-```
-frontegg-webhook-service/
-├── api/
-│   └── webhook.js          # Serverless function (Vercel)
-├── server/
-│   └── index.js            # Express server
-├── certs/                  # SSL certificates for local HTTPS
-├── .env-sample            # Environment variables template
-├── package.json           # Dependencies and scripts
-├── vercel.json           # Vercel deployment configuration
-└── README.md             # This file
-```
+   - **Secret**: Same value as `FRONTEGG_WEBHOOK_SECRET` in your `.env`
 
 ## 🔄 How It Works
 
