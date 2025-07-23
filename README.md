@@ -4,7 +4,7 @@
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
 [![Deploy on Vercel](https://img.shields.io/badge/Deploy%20on-Vercel-black.svg)](https://vercel.com)
 
-A robust Node.js service that automatically handles Frontegg webhook events to streamline user management across tenant applications. When a user is invited to a tenant, this service automatically assigns them to all applications associated with that tenant.
+A robust Node.js service that automatically handles Frontegg webhook events to streamline user management across tenant applications. When a user is invited to a tenant, this service automatically assigns them to all applications associated with that tenant—and now, to all sub-accounts (sub-tenants) as well, if any exist.
 
 ## 📋 Table of Contents
 
@@ -25,12 +25,15 @@ A robust Node.js service that automatically handles Frontegg webhook events to s
 
 This service is designed to automate user management workflows in Frontegg-powered applications. It listens for the `frontegg.user.invitedToTenant` webhook event and automatically handles user-to-application assignments, eliminating manual intervention and reducing administrative overhead.
 
+**New:** The service now also checks if the tenant (account) in the webhook has any sub-accounts. If sub-accounts exist, the invited user is automatically assigned to all applications in those sub-accounts as well.
+
 ### Key Benefits
 
 - **Automated User Management**: No manual user assignment required
+- **Sub-Account Support**: Seamlessly assigns users to sub-accounts (sub-tenants) and their applications
 - **Multi-Environment Support**: Deploy as serverless or traditional server
 - **Secure & Reliable**: Built-in webhook validation and error handling
-- **Scalable**: Handles multiple tenants and applications efficiently
+- **Scalable**: Handles multiple tenants, sub-accounts, and applications efficiently
 
 ## ✨ Features
 
@@ -39,6 +42,7 @@ This service is designed to automate user management workflows in Frontegg-power
 | 🔐 **Secure Webhook Validation** | Validates incoming webhooks using `x-webhook-secret` header |
 | 🔑 **Vendor Token Authentication** | Uses client credentials grant for API access |
 | 🤖 **Automatic User Assignment** | Assigns invited users to all tenant applications |
+| 🧩 **Sub-Account Assignment** | Checks for sub-accounts and assigns users to their applications as well |
 | 🚀 **Dual Deployment Support** | Works as both serverless and traditional server |
 | 🔒 **HTTPS Support** | Includes local HTTPS development with self-signed certificates |
 | 📊 **Comprehensive Error Handling** | Detailed error logging and graceful failure handling |
@@ -211,12 +215,14 @@ graph TD
     C --> D[Authenticate with Frontegg]
     D --> E[Fetch Tenant Applications]
     E --> F[Assign User to Applications]
-    F --> G[Return Success Response]
+    F --> G[Check for Sub-Accounts]
+    G --> H[Assign User to Sub-Account Applications]
+    H --> I[Return Success Response]
     
-    B -->|Invalid| H[Return 401]
-    C -->|Invalid Event| I[Return 400]
-    D -->|Auth Failed| J[Return 500]
-    E -->|No Apps| K[Return Success: 0]
+    B -->|Invalid| J[Return 401]
+    C -->|Invalid Event| K[Return 400]
+    D -->|Auth Failed| L[Return 500]
+    E -->|No Apps| M[Return Success: 0]
 ```
 
 ### Detailed Process
@@ -226,7 +232,9 @@ graph TD
 3. **Authentication**: Obtains vendor token using client credentials flow
 4. **Application Discovery**: Fetches all applications for the tenant
 5. **User Assignment**: Assigns the invited user to all tenant applications
-6. **Response**: Returns success count of assignments
+6. **Sub-Account Check**: Checks if the tenant has sub-accounts (sub-tenants)
+7. **Sub-Account Assignment**: If sub-accounts exist, assigns the user to all applications in those sub-accounts
+8. **Response**: Returns success count of assignments (including sub-accounts)
 
 ## 📝 API Reference
 
@@ -255,7 +263,7 @@ x-webhook-secret: your_webhook_secret
 
 | Status | Description | Response |
 |--------|-------------|----------|
-| `200 OK` | Success | `"Apps assigned: {count}"` |
+| `200 OK` | Success | `"Apps assigned: {count}"` (includes sub-account assignments) |
 | `400 Bad Request` | Invalid event or missing data | Error message |
 | `401 Unauthorized` | Invalid webhook secret | Error message |
 | `500 Internal Server Error` | Authentication or assignment failure | Error message |
@@ -264,7 +272,7 @@ x-webhook-secret: your_webhook_secret
 ```json
 {
   "status": "success",
-  "message": "Apps assigned: 3",
+  "message": "Apps assigned: 5 (including sub-accounts)",
   "timestamp": "2024-01-15T10:30:00Z"
 }
 ```
@@ -310,27 +318,34 @@ ngrok http 9000
 
 ### Common Issues & Solutions
 
-#### 1. Invalid Webhook Secret
+#### 1. Sub-Account Assignment Not Working
+**Problem**: Users are not being assigned to sub-accounts or their applications
+**Solution**:
+- Ensure the tenant has sub-accounts configured in Frontegg
+- Verify the service has permissions to fetch and assign users to sub-accounts
+- Check logs for errors related to sub-account discovery or assignment
+
+#### 2. Invalid Webhook Secret
 **Problem**: `401 Unauthorized` responses
 **Solution**: 
 - Ensure `FRONTEGG_WEBHOOK_SECRET` matches the value in Frontegg dashboard
 - Check for extra spaces or special characters
 
-#### 2. Authentication Failures
+#### 3. Authentication Failures
 **Problem**: `500 Internal Server Error` during token acquisition
 **Solution**:
 - Verify `FRONTEGG_CLIENT_ID` and `FRONTEGG_CLIENT_SECRET` are correct
 - Check that your Frontegg app has the necessary permissions
 - Ensure credentials haven't expired
 
-#### 3. User Assignment Failures
+#### 4. User Assignment Failures
 **Problem**: Users not being assigned to applications
 **Solution**:
 - Ensure the tenant has applications configured
 - Verify the user has proper permissions in the tenant
 - Check Frontegg API rate limits
 
-#### 4. Webhook Not Receiving Events
+#### 5. Webhook Not Receiving Events
 **Problem**: No webhook events being received
 **Solution**:
 - Verify webhook URL is accessible from Frontegg
@@ -344,8 +359,8 @@ Enable detailed logging by checking console output:
 ```bash
 # The service provides detailed console logging for:
 - Token authentication status
-- Application discovery results  
-- User assignment success/failure counts
+- Application and sub-account discovery results  
+- User assignment success/failure counts (including sub-accounts)
 - Error details for failed operations
 ```
 
