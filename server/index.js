@@ -1,22 +1,22 @@
 // server/index.js
-import express from "express";
-import dotenv from "dotenv";
-import bodyParser from "body-parser";
+import express from 'express';
+import bodyParser from 'body-parser';
+import { config } from '../config.js';
 import {
   getVendorToken,
   getAssignedApps,
   assignUserToApps,
+  assignUserToSubTenants,
   verifyWebhookSignature,
-} from "../utils.js";
+} from '../utils.js';
 
-dotenv.config();
 const app = express();
 app.use(bodyParser.json());
 
-app.post("/webhooks/user-invited", async (req, res) => {
-  const signature = req.headers["x-webhook-secret"];
-  if (!verifyWebhookSignature(signature, process.env.FRONTEGG_WEBHOOK_SECRET)) {
-    return res.status(401).json({ error: "Invalid webhook signature" });
+app.post('/webhooks/user-invited', async (req, res) => {
+  const signature = req.headers['x-webhook-secret'];
+  if (!verifyWebhookSignature(signature, config.webhookSecret)) {
+    return res.status(401).json({ error: 'Invalid webhook signature' });
   }
 
   const { user, eventContext } = req.body;
@@ -24,28 +24,28 @@ app.post("/webhooks/user-invited", async (req, res) => {
   const tenantId = eventContext?.tenantId;
 
   if (!tenantId || !userId) {
-    return res.status(400).json({ error: "Missing tenantId or userId" });
+    return res.status(400).json({ error: 'Missing tenantId or userId' });
   }
 
   try {
     const vendorToken = await getVendorToken();
-    const appIds = await getAssignedApps(tenantId, vendorToken);
 
-    if (appIds.length === 0) {
-      console.warn("No apps assigned to tenant");
-      return res.status(200).json({ message: "No apps to assign" });
-    }
+    const [appIds, subAssignments] = await Promise.all([
+      getAssignedApps(tenantId, vendorToken),
+      assignUserToSubTenants(userId, tenantId, vendorToken),
+    ]);
 
-    const results = await assignUserToApps(
-      userId,
-      tenantId,
-      appIds,
-      vendorToken
-    );
-    return res.status(200).json({ assigned: results });
+    const appAssignments = await assignUserToApps(userId, tenantId, appIds, vendorToken);
+
+    return res.status(200).json({
+      appsAssigned: appAssignments.length,
+      subTenantsAssigned: subAssignments.length,
+      appAssignments,
+      subAssignments,
+    });
   } catch (err) {
-    console.error("Error during webhook handling:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    console.error('Error during webhook handling:', err);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
