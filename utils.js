@@ -175,12 +175,13 @@ export async function assignUserToSubTenants(userId, tenantId, vendorToken) {
 /**
  * Disable a user immediately
  */
-export async function disableUser(userId, vendorToken) {
+export async function disableUser(userId, tenantId, vendorToken) {
   const url = `${API_BASE}/identity/resources/tenants/users/v1/${userId}/disable`;
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${vendorToken}`,
+      'frontegg-tenant-id': tenantId,
     },
   });
 

@@ -38,7 +38,7 @@ export default async function handler(req, res) {
     const appAssignments = await assignUserToApps(userId, tenantId, appIds, vendorToken);
 
     // Disable the user as the last step
-    const disableResult = await disableUser(userId, vendorToken);
+    const disableResult = await disableUser(userId, tenantId, vendorToken);
 
     return res.status(200).json({
       userDisabled: disableResult.success,
