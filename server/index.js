@@ -8,6 +8,7 @@ import {
   assignUserToApps,
   assignUserToSubTenants,
   verifyWebhookSignature,
+  disableUser,
 } from '../utils.js';
 
 const app = express();
@@ -37,7 +38,12 @@ app.post('/webhooks/user-invited', async (req, res) => {
 
     const appAssignments = await assignUserToApps(userId, tenantId, appIds, vendorToken);
 
+    // Disable the user as the last step
+    const disableResult = await disableUser(userId, vendorToken);
+
     return res.status(200).json({
+      userDisabled: disableResult.success,
+      disableStatus: disableResult.status,
       appsAssigned: appAssignments.length,
       subTenantsAssigned: subAssignments.length,
       appAssignments,

@@ -171,3 +171,23 @@ export async function assignUserToSubTenants(userId, tenantId, vendorToken) {
 
   return Promise.all(promises);
 }
+
+/**
+ * Disable a user immediately
+ */
+export async function disableUser(userId, vendorToken) {
+  const url = `${API_BASE}/identity/resources/tenants/users/v1/${userId}/disable`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${vendorToken}`,
+    },
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => '');
+    console.error(`❌ Failed to disable user ${userId}:`, res.status, errorText);
+  }
+
+  return { status: res.status, success: res.ok };
+}
